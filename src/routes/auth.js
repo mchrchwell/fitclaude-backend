@@ -7,14 +7,14 @@ const router = express.Router();
 
 router.post('/register', async (req, res) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, display_name } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
     const password_hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
-      'INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name, created_at',
-      [email.trim().toLowerCase(), password_hash, name || null]
+      'INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id, email, display_name, created_at',
+      [email.trim().toLowerCase(), password_hash, display_name || null]
     );
     const user = result.rows[0];
     const token = jwt.sign(
@@ -22,7 +22,7 @@ router.post('/register', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
-    res.status(201).json({ user: { id: user.id, email: user.email, name: user.name }, token });
+    res.status(201).json({ user: { id: user.id, email: user.email, display_name: user.display_name }, token });
   } catch (err) {
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Email already registered' });
@@ -38,7 +38,7 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' });
     }
     const result = await pool.query(
-      'SELECT id, email, name, password_hash FROM users WHERE email = $1',
+      'SELECT id, email, display_name, password_hash FROM users WHERE email = $1',
       [email.trim().toLowerCase()]
     );
     if (result.rows.length === 0) {
@@ -54,7 +54,7 @@ router.post('/login', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
-    res.json({ user: { id: user.id, email: user.email, name: user.name }, token });
+    res.json({ user: { id: user.id, email: user.email, display_name: user.display_name }, token });
   } catch (err) {
     res.status(500).json({ error: 'Login failed' });
   }

@@ -21,4 +21,8 @@ app.use('/workouts', workoutsRoutes);
 app.use('/chat', chatRoutes);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`FitClaude API listening on port ${PORT}`));
+const HOST = '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
+  console.log(`FitClaude API listening on ${HOST}:${PORT}`);
+});

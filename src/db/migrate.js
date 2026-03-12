@@ -1,6 +1,16 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+
+const dbUrl = process.env.DATABASE_URL;
+if (!dbUrl || dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1')) {
+  console.error(
+    'DATABASE_URL must point to Railway Postgres, not localhost.\n' +
+    'In Railway: open your app service → Variables → "Add variable" → "Add reference" → choose your PostgreSQL service → select DATABASE_URL.'
+  );
+  process.exit(1);
+}
+
 const { pool } = require('./index');
 
 const MIGRATIONS_DIR = path.join(__dirname, '../../migrations');

@@ -8,7 +8,7 @@ router.use(auth);
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, user_id, age, weight_kg, height_cm, goals, activity_level, created_at, updated_at FROM profiles WHERE user_id = $1',
+      'SELECT id, user_id, age, height_cm, weight_kg, equipment, injuries, goals, notes, created_at, updated_at FROM user_profiles WHERE user_id = $1',
       [req.user.id]
     );
     const profile = result.rows[0] || null;
@@ -20,21 +20,28 @@ router.get('/', async (req, res) => {
 
 router.put('/', async (req, res) => {
   try {
-    const { age, weight_kg, height_cm, goals, activity_level } = req.body;
+    const { age, height_cm, weight_kg, equipment, injuries, goals, notes } = req.body;
+    const toJson = (v) => (v === undefined || v === null ? null : typeof v === 'string' ? v : JSON.stringify(Array.isArray(v) ? v : [v]));
+    const equipmentJson = toJson(equipment);
+    const injuriesJson = toJson(injuries);
+    const goalsJson = toJson(goals);
+
     await pool.query(
-      `INSERT INTO profiles (user_id, age, weight_kg, height_cm, goals, activity_level, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      `INSERT INTO user_profiles (user_id, age, height_cm, weight_kg, equipment, injuries, goals, notes, updated_at)
+       VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '[]'), COALESCE($6::jsonb, '[]'), COALESCE($7::jsonb, '[]'), $8, NOW())
        ON CONFLICT (user_id) DO UPDATE SET
-         age = COALESCE(EXCLUDED.age, profiles.age),
-         weight_kg = COALESCE(EXCLUDED.weight_kg, profiles.weight_kg),
-         height_cm = COALESCE(EXCLUDED.height_cm, profiles.height_cm),
-         goals = COALESCE(EXCLUDED.goals, profiles.goals),
-         activity_level = COALESCE(EXCLUDED.activity_level, profiles.activity_level),
+         age = COALESCE(EXCLUDED.age, user_profiles.age),
+         height_cm = COALESCE(EXCLUDED.height_cm, user_profiles.height_cm),
+         weight_kg = COALESCE(EXCLUDED.weight_kg, user_profiles.weight_kg),
+         equipment = COALESCE(EXCLUDED.equipment, user_profiles.equipment),
+         injuries = COALESCE(EXCLUDED.injuries, user_profiles.injuries),
+         goals = COALESCE(EXCLUDED.goals, user_profiles.goals),
+         notes = COALESCE(EXCLUDED.notes, user_profiles.notes),
          updated_at = NOW()`,
-      [req.user.id, age ?? null, weight_kg ?? null, height_cm ?? null, goals ?? null, activity_level ?? null]
+      [req.user.id, age ?? null, height_cm ?? null, weight_kg ?? null, equipmentJson, injuriesJson, goalsJson, notes ?? null]
     );
     const result = await pool.query(
-      'SELECT id, user_id, age, weight_kg, height_cm, goals, activity_level, updated_at FROM profiles WHERE user_id = $1',
+      'SELECT id, user_id, age, height_cm, weight_kg, equipment, injuries, goals, notes, updated_at FROM user_profiles WHERE user_id = $1',
       [req.user.id]
     );
     res.json({ profile: result.rows[0] });
