@@ -56,30 +56,9 @@ router.post('/', async (req, res) => {
     );
     const profile = profileResult.rows[0];
 
-    // Fetch active plan with days and exercises
+    // Fetch active plan from raw_claude_json
     const planResult = await pool.query(
-      `SELECT wp.name, wp.description, wp.duration_weeks,
-        json_agg(
-          json_build_object(
-            'day', pd.day_label,
-            'name', pd.name,
-            'focus', pd.muscle_groups,
-            'exercises', (
-              SELECT json_agg(json_build_object(
-                'name', pe.name,
-                'sets', pe.sets,
-                'reps', pe.reps,
-                'start_weight_kg', pe.start_weight_kg,
-                'notes', pe.notes
-              ))
-              FROM plan_exercises pe WHERE pe.plan_day_id = pd.id
-            )
-          ) ORDER BY pd.day_order
-        ) as days
-      FROM workout_plans wp
-      JOIN plan_days pd ON pd.plan_id = wp.id
-      WHERE wp.user_id = $1 AND wp.is_active = true
-      GROUP BY wp.id`,
+      'SELECT name, description, raw_claude_json FROM workout_plans WHERE user_id = $1 AND is_active = true LIMIT 1',
       [req.user.id]
     );
     const plan = planResult.rows[0];
@@ -89,8 +68,6 @@ router.post('/', async (req, res) => {
     if (profile) {
       context += `USER PROFILE:\n`;
       if (profile.age) context += `- Age: ${profile.age}\n`;
-
-
       if (profile.goals?.length) context += `- Goals: ${profile.goals.join(', ')}\n`;
       if (profile.equipment?.length) context += `- Available equipment: ${profile.equipment.join(', ')}\n`;
       if (profile.injuries?.length) context += `- Injuries/limitations: ${profile.injuries.join(', ')}\n`;
@@ -98,16 +75,19 @@ router.post('/', async (req, res) => {
     }
     if (plan) {
       context += `\nACTIVE WORKOUT PLAN: ${plan.name}\n`;
-      context += `${plan.description}\n`;
-      context += `Duration: ${plan.duration_weeks} weeks\n\nDays:\n`;
-      for (const day of plan.days) {
-        context += `\n${day.day} - ${day.name} (${day.focus?.join(', ')})\n`;
-        if (day.exercises) {
-          for (const ex of day.exercises) {
-            context += `  - ${ex.name}: ${ex.sets}x${ex.reps}`;
-            if (ex.start_weight_kg) context += ` @ ${ex.start_weight_kg}kg`;
-            if (ex.notes) context += ` (${ex.notes})`;
-            context += '\n';
+      if (plan.description) context += `${plan.description}\n`;
+      const days = plan.raw_claude_json?.days;
+      if (days?.length) {
+        context += `\nDays:\n`;
+        for (const day of days) {
+          context += `\n${day.dayLabel} - ${day.name} (${day.focus})\n`;
+          if (day.exercises) {
+            for (const ex of day.exercises) {
+              context += `  - ${ex.name}: ${ex.prescribedSets}x${ex.prescribedReps}`;
+              if (ex.startWeightKg) context += ` @ ${ex.startWeightKg}kg`;
+              if (ex.notes) context += ` (${ex.notes})`;
+              context += '\n';
+            }
           }
         }
       }
