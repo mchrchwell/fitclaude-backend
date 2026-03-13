@@ -27,6 +27,7 @@ router.post('/register', async (req, res) => {
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Email already registered' });
     }
+    console.error('Register error:', err.message, err.stack);
     res.status(500).json({ error: 'Registration failed' });
   }
 });
@@ -56,6 +57,7 @@ router.post('/login', async (req, res) => {
     );
     res.json({ user: { id: user.id, email: user.email, display_name: user.display_name }, token });
   } catch (err) {
+    console.error('Login error:', err.message, err.stack);
     res.status(500).json({ error: 'Login failed' });
   }
 });
