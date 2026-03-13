@@ -1,9 +1,144 @@
 const express = require('express');
 const { pool } = require('../db');
 const { auth } = require('../middleware/auth');
+const { generatePlan } = require('../services/claude');
 
 const router = express.Router();
 router.use(auth);
+
+// POST /plans/generate — generate a Claude plan from user profile
+router.post('/generate', async (req, res) => {
+  try {
+    const profileResult = await pool.query(
+      'SELECT * FROM user_profiles WHERE user_id = $1',
+      [req.user.id]
+    );
+    if (profileResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Complete your profile before generating a plan' });
+    }
+    const profile = profileResult.rows[0];
+    if (!profile.age || !profile.goals || profile.goals.length === 0) {
+      return res.status(400).json({ error: 'Profile needs at least age and goals to generate a plan' });
+    }
+
+    // Deactivate existing active plan
+    await pool.query(
+      'UPDATE workout_plans SET is_active = FALSE WHERE user_id = $1 AND is_active = TRUE',
+      [req.user.id]
+    );
+
+    const { plan, rawContent } = await generatePlan({
+      age: profile.age,
+      heightCm: profile.height_cm,
+      weightKg: profile.weight_kg,
+      equipment: profile.equipment,
+      injuries: profile.injuries,
+      goals: profile.goals,
+      notes: profile.notes,
+    });
+
+    const planResult = await pool.query(
+      'INSERT INTO workout_plans (user_id, name, description, raw_claude_json, is_active) VALUES ($1, $2, $3, $4, TRUE) RETURNING id',
+      [req.user.id, plan.name, plan.description, JSON.stringify(plan)]
+    );
+    const planId = planResult.rows[0].id;
+
+    for (let i = 0; i < plan.days.length; i++) {
+      const day = plan.days[i];
+      const dayResult = await pool.query(
+        'INSERT INTO plan_days (plan_id, day_label, name, focus, sort_order) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        [planId, day.dayLabel, day.name, day.focus || null, i]
+      );
+      const dayId = dayResult.rows[0].id;
+      for (let j = 0; j < day.exercises.length; j++) {
+        const ex = day.exercises[j];
+        await pool.query(
+          'INSERT INTO plan_exercises (plan_day_id, name, prescribed_sets, prescribed_reps, start_weight_kg, notes, sort_order) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+          [dayId, ex.name, ex.prescribedSets || 3, ex.prescribedReps || '10', ex.startWeightKg || null, ex.notes || null, j]
+        );
+      }
+    }
+
+    await pool.query('UPDATE users SET active_plan_id = $1 WHERE id = $2', [planId, req.user.id]);
+
+    // Return full plan with days and exercises
+    const fullPlan = await pool.query('SELECT * FROM workout_plans WHERE id = $1', [planId]);
+    const days = await pool.query('SELECT * FROM plan_days WHERE plan_id = $1 ORDER BY sort_order', [planId]);
+    for (const day of days.rows) {
+      const exercises = await pool.query('SELECT * FROM plan_exercises WHERE plan_day_id = $1 ORDER BY sort_order', [day.id]);
+      day.exercises = exercises.rows.map(ex => ({
+        id: ex.id,
+        name: ex.name,
+        prescribedSets: ex.prescribed_sets,
+        prescribedReps: ex.prescribed_reps,
+        startWeightKg: ex.start_weight_kg,
+        notes: ex.notes,
+      }));
+    }
+
+    res.status(201).json({
+      id: planId,
+      name: plan.name,
+      description: plan.description,
+      isActive: true,
+      days: days.rows.map(d => ({
+        id: d.id,
+        dayLabel: d.day_label,
+        name: d.name,
+        focus: d.focus,
+        exercises: d.exercises,
+      })),
+    });
+  } catch (err) {
+    console.error('Generate plan error:', err);
+    if (err instanceof SyntaxError) {
+      return res.status(500).json({ error: 'Claude returned malformed JSON — please retry' });
+    }
+    res.status(500).json({ error: 'Failed to generate plan' });
+  }
+});
+
+// GET /plans/active — get the user's active plan
+router.get('/active', async (req, res) => {
+  try {
+    const planResult = await pool.query(
+      'SELECT * FROM workout_plans WHERE user_id = $1 AND is_active = TRUE',
+      [req.user.id]
+    );
+    if (planResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No active plan' });
+    }
+    const plan = planResult.rows[0];
+    const days = await pool.query('SELECT * FROM plan_days WHERE plan_id = $1 ORDER BY sort_order', [plan.id]);
+    for (const day of days.rows) {
+      const exercises = await pool.query('SELECT * FROM plan_exercises WHERE plan_day_id = $1 ORDER BY sort_order', [day.id]);
+      day.exercises = exercises.rows.map(ex => ({
+        id: ex.id,
+        name: ex.name,
+        prescribedSets: ex.prescribed_sets,
+        prescribedReps: ex.prescribed_reps,
+        startWeightKg: ex.start_weight_kg,
+        notes: ex.notes,
+      }));
+    }
+    res.json({
+      id: plan.id,
+      name: plan.name,
+      description: plan.description,
+      isActive: plan.is_active,
+      days: days.rows.map(d => ({
+        id: d.id,
+        dayLabel: d.day_label,
+        name: d.name,
+        focus: d.focus,
+        exercises: d.exercises,
+      })),
+    });
+  } catch (err) {
+    console.error('Get active plan error:', err);
+    res.status(500).json({ error: 'Failed to get active plan' });
+  }
+});
 
 // List plans (optionally with days + exercises)
 router.get('/', async (req, res) => {
