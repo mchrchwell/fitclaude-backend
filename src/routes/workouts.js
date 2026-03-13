@@ -25,13 +25,28 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { plan_day_id, started_at, finished_at, notes, perceived_effort } = req.body;
+    const { plan_day_id, started_at, finished_at, notes, perceived_effort, sets } = req.body;
     const result = await pool.query(
       'INSERT INTO workout_sessions (user_id, plan_day_id, started_at, finished_at, notes, perceived_effort) VALUES ($1, $2, COALESCE($3::timestamptz, NOW()), $4::timestamptz, $5, $6) RETURNING id, plan_day_id, started_at, finished_at, notes, perceived_effort, created_at',
       [req.user.id, plan_day_id || null, started_at, finished_at, notes ?? null, perceived_effort ?? null]
     );
-    res.status(201).json({ session: result.rows[0] });
+    const session = result.rows[0];
+
+    // Insert sets if provided
+    if (sets && Array.isArray(sets) && sets.length > 0) {
+      for (const set of sets) {
+        const { exerciseName, planExerciseId, setNumber, repsCompleted, weightKg, durationSeconds, isCompleted, performanceData } = set;
+        if (!exerciseName || setNumber == null) continue;
+        await pool.query(
+          'INSERT INTO logged_sets (session_id, plan_exercise_id, exercise_name, set_number, reps_completed, weight_kg, duration_seconds, is_completed, performance_data) VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, false), COALESCE($9::jsonb, \'{}\'))',
+          [session.id, planExerciseId || null, exerciseName, setNumber, repsCompleted ?? null, weightKg ?? null, durationSeconds ?? null, isCompleted ?? false, performanceData ? JSON.stringify(performanceData) : null]
+        );
+      }
+    }
+
+    res.status(201).json({ session });
   } catch (err) {
+    console.error('Create session error:', err);
     res.status(500).json({ error: 'Failed to create session' });
   }
 });
