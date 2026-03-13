@@ -51,7 +51,7 @@ router.post('/', async (req, res) => {
 
     // Fetch user profile
     const profileResult = await pool.query(
-      'SELECT age, gender, height_cm, weight_kg, fitness_level, goals, equipment, injuries, notes FROM user_profiles WHERE user_id = $1',
+      'SELECT age, height_cm, weight_kg, fitness_level, goals, equipment, injuries, notes FROM user_profiles WHERE user_id = $1',
       [req.user.id]
     );
     const profile = profileResult.rows[0];
@@ -89,7 +89,7 @@ router.post('/', async (req, res) => {
     if (profile) {
       context += `USER PROFILE:\n`;
       if (profile.age) context += `- Age: ${profile.age}\n`;
-      if (profile.gender) context += `- Gender: ${profile.gender}\n`;
+
       if (profile.fitness_level) context += `- Fitness level: ${profile.fitness_level}\n`;
       if (profile.goals?.length) context += `- Goals: ${profile.goals.join(', ')}\n`;
       if (profile.equipment?.length) context += `- Available equipment: ${profile.equipment.join(', ')}\n`;
