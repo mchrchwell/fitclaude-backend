@@ -62,15 +62,15 @@ Rules:
   return { plan, rawContent };
 }
 
-async function chat(messages, systemContext) {
-  const system = systemContext
-    ? `${SYSTEM_PROMPT}\n\n---\n${systemContext}`
-    : SYSTEM_PROMPT;
+async function chat(messages, context = null) {
+  const systemPrompt = context
+    ? `You are a personal fitness coach and trainer. You have access to the user's workout plan and profile. Use this context to give specific, personalized advice.\n\nUser Context:\n${context}`
+    : `You are a personal fitness coach and trainer. Give practical, encouraging, and specific fitness advice.`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-opus-4-5',
     max_tokens: 1024,
-    system,
+    system: systemPrompt,
     messages,
   });
   const textBlock = response.content.find((block) => block.type === 'text');

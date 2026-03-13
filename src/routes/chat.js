@@ -44,10 +44,73 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Verify conversation belongs to user
     const convCheck = await pool.query('SELECT id FROM conversations WHERE id = $1 AND user_id = $2', [convId, req.user.id]);
     if (convCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Fetch user profile
+    const profileResult = await pool.query(
+      'SELECT age, gender, height_cm, weight_kg, fitness_level, goals, equipment, injuries, notes FROM user_profiles WHERE user_id = $1',
+      [req.user.id]
+    );
+    const profile = profileResult.rows[0];
+
+    // Fetch active plan with days and exercises
+    const planResult = await pool.query(
+      `SELECT wp.name, wp.description, wp.duration_weeks,
+        json_agg(
+          json_build_object(
+            'day', pd.day_label,
+            'name', pd.name,
+            'focus', pd.muscle_groups,
+            'exercises', (
+              SELECT json_agg(json_build_object(
+                'name', pe.name,
+                'sets', pe.sets,
+                'reps', pe.reps,
+                'start_weight_kg', pe.start_weight_kg,
+                'notes', pe.notes
+              ))
+              FROM plan_exercises pe WHERE pe.plan_day_id = pd.id
+            )
+          ) ORDER BY pd.day_order
+        ) as days
+      FROM workout_plans wp
+      JOIN plan_days pd ON pd.plan_id = wp.id
+      WHERE wp.user_id = $1 AND wp.is_active = true
+      GROUP BY wp.id`,
+      [req.user.id]
+    );
+    const plan = planResult.rows[0];
+
+    // Build context string
+    let context = '';
+    if (profile) {
+      context += `USER PROFILE:\n`;
+      if (profile.age) context += `- Age: ${profile.age}\n`;
+      if (profile.gender) context += `- Gender: ${profile.gender}\n`;
+      if (profile.fitness_level) context += `- Fitness level: ${profile.fitness_level}\n`;
+      if (profile.goals?.length) context += `- Goals: ${profile.goals.join(', ')}\n`;
+      if (profile.equipment?.length) context += `- Available equipment: ${profile.equipment.join(', ')}\n`;
+      if (profile.injuries?.length) context += `- Injuries/limitations: ${profile.injuries.join(', ')}\n`;
+      if (profile.notes) context += `- Notes: ${profile.notes}\n`;
+    }
+    if (plan) {
+      context += `\nACTIVE WORKOUT PLAN: ${plan.name}\n`;
+      context += `${plan.description}\n`;
+      context += `Duration: ${plan.duration_weeks} weeks\n\nDays:\n`;
+      for (const day of plan.days) {
+        context += `\n${day.day} - ${day.name} (${day.focus?.join(', ')})\n`;
+        if (day.exercises) {
+          for (const ex of day.exercises) {
+            context += `  - ${ex.name}: ${ex.sets}x${ex.reps}`;
+            if (ex.start_weight_kg) context += ` @ ${ex.start_weight_kg}kg`;
+            if (ex.notes) context += ` (${ex.notes})`;
+            context += '\n';
+          }
+        }
+      }
     }
 
     await pool.query(
@@ -61,7 +124,7 @@ router.post('/', async (req, res) => {
     );
     const messages = historyResult.rows.map((row) => ({ role: row.role, content: row.content }));
 
-    const reply = await chat(messages);
+    const reply = await chat(messages, context || null);
 
     await pool.query(
       'INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3)',
