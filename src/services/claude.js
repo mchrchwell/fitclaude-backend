@@ -64,8 +64,8 @@ Rules:
 
 async function chat(messages, context = null) {
   const systemPrompt = context
-    ? `You are a personal fitness coach and trainer. You have access to the user's workout plan and profile. Use this context to give specific, personalized advice.\n\nUser Context:\n${context}`
-    : `You are a personal fitness coach and trainer. Give practical, encouraging, and specific fitness advice.`;
+    ? `You are a personal fitness coach and trainer. You have access to the user's workout plan and profile. Use this context to give specific, personalized advice.\n\nWhen formatting responses:\n- Never use markdown tables\n- Use plain bullet points or numbered lists instead\n- Keep responses conversational and easy to read on mobile\n\nUser Context:\n${context}`
+    : `You are a personal fitness coach and trainer. Give practical, encouraging, and specific fitness advice. Never use markdown tables — use plain bullet points or numbered lists instead. Keep responses conversational and easy to read on mobile.`;
 
   const response = await client.messages.create({
     model: 'claude-opus-4-5',
