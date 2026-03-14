@@ -140,6 +140,68 @@ router.get('/active', async (req, res) => {
   }
 });
 
+// PUT /plans/active — replace days and exercises of the active plan
+router.put('/active', async (req, res) => {
+  try {
+    const { name, description, days } = req.body;
+    if (!days || !Array.isArray(days)) {
+      return res.status(400).json({ error: 'days array required' });
+    }
+
+    // Get current active plan
+    const planResult = await pool.query(
+      'SELECT id FROM workout_plans WHERE user_id = $1 AND is_active = true LIMIT 1',
+      [req.user.id]
+    );
+    if (planResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No active plan found' });
+    }
+    const planId = planResult.rows[0].id;
+
+    // Build updated raw_claude_json
+    const updatedJson = { name, description, days };
+
+    // Update the plan
+    await pool.query(
+      'UPDATE workout_plans SET name = $1, description = $2, raw_claude_json = $3, updated_at = NOW() WHERE id = $4',
+      [name, description, JSON.stringify(updatedJson), planId]
+    );
+
+    // Delete existing days and exercises, re-insert
+    const existingDays = await pool.query(
+      'SELECT id FROM plan_days WHERE plan_id = $1', [planId]
+    );
+    for (const day of existingDays.rows) {
+      await pool.query('DELETE FROM plan_exercises WHERE plan_day_id = $1', [day.id]);
+    }
+    await pool.query('DELETE FROM plan_days WHERE plan_id = $1', [planId]);
+
+    // Re-insert days and exercises
+    for (let i = 0; i < days.length; i++) {
+      const day = days[i];
+      const dayResult = await pool.query(
+        'INSERT INTO plan_days (plan_id, day_label, name, muscle_groups, day_order) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        [planId, day.dayLabel, day.name, day.focus ? [day.focus] : [], i]
+      );
+      const dayId = dayResult.rows[0].id;
+      if (day.exercises) {
+        for (let j = 0; j < day.exercises.length; j++) {
+          const ex = day.exercises[j];
+          await pool.query(
+            'INSERT INTO plan_exercises (plan_day_id, name, sets, reps, start_weight_kg, notes, exercise_order) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+            [dayId, ex.name, ex.prescribedSets || 3, ex.prescribedReps || '10', ex.startWeightKg || 0, ex.notes || '', j]
+          );
+        }
+      }
+    }
+
+    res.json({ success: true, message: 'Plan updated successfully' });
+  } catch (err) {
+    console.error('Update plan error:', err);
+    res.status(500).json({ error: 'Failed to update plan' });
+  }
+});
+
 // List plans (optionally with days + exercises)
 router.get('/', async (req, res) => {
   try {
