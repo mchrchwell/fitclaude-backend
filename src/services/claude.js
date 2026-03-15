@@ -105,7 +105,7 @@ User Context:\n${context}`
 
   const response = await client.messages.create({
     model: 'claude-opus-4-5',
-    max_tokens: 1024,
+    max_tokens: 4096,
     system: systemPrompt,
     messages,
   });
